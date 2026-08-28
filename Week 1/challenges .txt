@@ -1,0 +1,6 @@
+Your chatbot journey so far
+Small dataset — At first, you had too few patterns, so the model confused greeting and goodbye.
+Training loop — There was an indentation issue where your batches weren't properly inside the epoch loop.
+Epoch — You learned that an epoch is one complete pass through your training data.
+Loss — You learned that loss measures how wrong the model's predictions are. Lower is generally better.
+Dropout — You learned that dropout randomly disables some neurons during training to reduce overfitting. You changed:

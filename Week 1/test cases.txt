@@ -1,0 +1,15 @@
+1. Do you have a free room for me?
+2. Can I stay at the hotel tonight?
+3. Are there any vacancies right now?
+4. Is there somewhere I can stay?
+5. Can you check for an available room?
+6. When can I collect my room key?
+7. Where do I get the key after checking in?
+8. When will my hotel key be ready?
+9. How do I access my assigned room?
+10. Where can I pick up my room key?
+11. I just arrived at the hotel, what happens next?
+12. I need a place to stay for tonight.
+13. I've checked in, where should I get my key?
+14. Is there a room available for my family?
+15. Where do I go to collect the key for my room?
