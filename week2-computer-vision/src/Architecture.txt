@@ -1,0 +1,523 @@
+1. Overall architecture
+                    ┌─────────────────────┐
+                    │       main.py        │
+                    │   Application entry  │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │  VideoProcessor     │
+                    │                     │
+                    │ Read video frames   │
+                    │ Write output video  │
+                    └──────────┬──────────┘
+                               │
+                         each frame
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │   PlayerDetector    │
+                    │                     │
+                    │       YOLO          │
+                    └──────────┬──────────┘
+                               │
+                         detections
+                               │
+                 ┌─────────────┴─────────────┐
+                 │                           │
+                 ▼                           ▼
+          Player bounding box          Other objects
+                 │                 ball/referee/etc.
+                 ▼
+        ┌─────────────────────┐
+        │  ColorClassifier    │
+        │                     │
+        │ Extract jersey      │
+        │ region + color      │
+        └──────────┬──────────┘
+                   │
+              RGB color
+                   │
+                   ▼
+        ┌─────────────────────┐
+        │ TeamColorAssigner   │
+        │                     │
+        │      K-Means        │
+        └──────────┬──────────┘
+                   │
+              Team ID
+             0 or 1
+                   │
+                   ▼
+        ┌─────────────────────┐
+        │ Visualization       │
+        │                     │
+        │ Draw boxes/colors   │
+        │ Draw team labels    │
+        └──────────┬──────────┘
+                   │
+                   ▼
+             Output video
+
+That's the big picture.
+
+2. Folder architecture
+I'd use this:
+
+player_team_color/
+│
+├── main.py
+├── yolo11n.pt
+│
+├── input/
+│   └── input_videos_02.mp4
+│
+├── output/
+│   └── result.mp4
+│
+├── src/
+│   ├── __init__.py
+│   │
+│   ├── detector.py
+│   │
+│   ├── color_classifier.py
+│   │
+│   ├── team_color_assigner.py
+│   │
+│   ├── video_processor.py
+│   │
+│   └── visualization.py
+│
+└── venv/
+
+I'd add visualization.py because draw_boxes() isn't really the responsibility of the team-color algorithm.
+
+3. main.py
+main.py should be relatively boring.
+
+That's actually a good thing.
+
+Its job is to coordinate everything:
+
+main.py
+   │
+   ├── create VideoProcessor
+   ├── create PlayerDetector
+   ├── create ColorClassifier
+   ├── create TeamColorAssigner
+   │
+   └── run pipeline
+
+Conceptually:
+
+def main():
+
+    video = VideoProcessor(...)
+
+    detector = PlayerDetector(...)
+
+    color_classifier = ColorClassifier()
+
+    team_assigner = TeamColorAssigner()
+
+    # process video
+
+You don't want 300 lines of computer-vision logic in main.py.
+
+4. detector.py
+This is responsible for object detection.
+
+Frame
+  │
+  ▼
+YOLO
+  │
+  ▼
+Detection
+
+I'd eventually have:
+
+class Detection:
+    class_id
+    confidence
+    bbox
+
+and:
+
+class PlayerDetector:
+
+    def __init__(self, model_path):
+        ...
+
+    def detect(self, frame):
+        ...
+
+So the rest of your program doesn't need to know YOLO's internal API.
+
+Instead:
+
+detections = detector.detect(frame)
+
+and gets clean detection objects.
+
+5. color_classifier.py
+This answers one question:
+
+What color is this player's jersey?
+
+Input:
+
+frame + bounding box
+
+Output:
+
+[ R, G, B ]
+
+Pipeline:
+
+Player bounding box
+       │
+       ▼
+Crop player
+       │
+       ▼
+Find jersey region
+       │
+       ▼
+Remove irrelevant pixels
+       │
+       ▼
+Calculate dominant/representative color
+       │
+       ▼
+RGB vector
+
+Eventually I'd make this a class too:
+
+class ColorClassifier:
+
+    def get_player_color(self, frame, bbox):
+        ...
+
+6. team_color_assigner.py
+This is where K-Means lives.
+
+Its job is NOT:
+
+"What color is this player?"
+
+That's the classifier's job.
+
+Its job is:
+
+"Given the colors I've observed, which team does this player belong to?"
+
+Architecture:
+
+Player colors collected
+       │
+       ▼
+┌─────────────────┐
+│     K-Means     │
+│                 │
+│   Cluster 0     │
+│   Cluster 1     │
+└────────┬────────┘
+         │
+         ▼
+     Team colors
+
+I'd use:
+
+class TeamColorAssigner:
+
+    def fit(self, player_colors):
+        ...
+
+    def get_player_team_id(self, player_color):
+        ...
+
+This gives the object state:
+
+TeamColorAssigner
+       │
+       └── trained K-Means model
+
+7. video_processor.py
+This handles the video itself.
+
+It shouldn't know anything about K-Means.
+
+Its job is:
+
+Video
+ │
+ ├── open
+ ├── read frame
+ ├── provide frame
+ ├── write frame
+ └── close
+
+For example:
+
+class VideoProcessor:
+
+    def __init__(self, input_path, output_path):
+        ...
+
+    def read(self):
+        ...
+
+    def write(self, frame):
+        ...
+
+    def release(self):
+        ...
+
+That keeps OpenCV video handling separate from your ML logic.
+
+8. visualization.py
+This handles:
+
+bounding boxes
+labels
+team colors
+confidence
+
+For example:
+
+def draw_player_box(
+    frame,
+    bbox,
+    team_id,
+    confidence
+):
+    ...
+
+So:
+
+ML logic
+   │
+   │ "Player is Team 1"
+   ▼
+Visualization
+   │
+   │ "Draw blue box"
+   ▼
+Frame
+
+9. The actual runtime pipeline
+This is the part I really want you to understand.
+
+Imagine frame #100 arrives.
+
+Step 1
+VideoProcessor
+       ↓
+frame 100
+
+Step 2
+frame
+  ↓
+PlayerDetector
+  ↓
+detections
+
+Maybe:
+
+Player A → bbox
+Player B → bbox
+Player C → bbox
+Referee  → bbox
+Ball     → bbox
+
+Step 3
+Filter players:
+
+detections
+     │
+     ├── Player A ✓
+     ├── Player B ✓
+     ├── Player C ✓
+     ├── Referee ✗
+     └── Ball ✗
+
+Step 4
+Extract colors:
+
+Player A → [210, 30, 40]
+Player B → [205, 40, 45]
+Player C → [25, 40, 200]
+
+Step 5
+During the learning phase:
+
+[210, 30, 40]
+[205, 40, 45]
+[25, 40, 200]
+[30, 45, 190]
+...
+
+go into K-Means.
+
+Eventually:
+
+Cluster 0 → red-ish
+Cluster 1 → blue-ish
+
+Step 6
+For a new player:
+
+Player D
+   ↓
+[215, 35, 45]
+   ↓
+K-Means
+   ↓
+Cluster 0
+   ↓
+Team 0
+
+Step 7
+Visualization:
+
+Player D
+   ↓
+Team 0
+   ↓
+draw red box
+
+Step 8
+Write the frame:
+
+Processed frame
+      ↓
+output/result.mp4
+
+10. The most important design decision
+Don't make K-Means run for every player.
+
+Bad:
+
+Player
+ ↓
+create KMeans
+ ↓
+fit
+ ↓
+assign
+
+every time.
+
+Instead:
+
+FIRST PHASE
+
+Frames 1 → 60
+     │
+     ▼
+collect player colors
+     │
+     ▼
+K-Means.fit()
+     │
+     ▼
+Teams learned
+
+
+SECOND PHASE
+
+Frame 61+
+     │
+     ▼
+detect player
+     │
+     ▼
+extract color
+     │
+     ▼
+KMeans.predict()
+     │
+     ▼
+team ID
+
+That's a fundamental ML concept:
+
+TRAIN
+  ↓
+MODEL
+  ↓
+PREDICT
+
+                 FOOTBALL VIDEO
+                       │
+                       ▼
+              ┌─────────────────┐
+              │     main.py     │
+              │  Orchestrator   │
+              └────────┬────────┘
+                       │
+                       ▼
+              ┌─────────────────┐
+              │ VideoProcessor  │
+              │                 │
+              │ Read frames     │
+              │ Write frames    │
+              └────────┬────────┘
+                       │
+                     frame
+                       │
+                       ▼
+              ┌─────────────────┐
+              │ PlayerDetector  │
+              │                 │
+              │ YOLO model      │
+              │                 │
+              │ detect()        │
+              └────────┬────────┘
+                       │
+                 detections
+                       │
+                       ▼
+              ┌─────────────────┐
+              │ ColorClassifier  │
+              │                 │
+              │ get_player_     │
+              │ color()         │
+              │                 │
+              │ BGR → LAB       │
+              │                 │
+              │ jersey region   │
+              │                 │
+              │ median color    │
+              └────────┬────────┘
+                       │
+                  LAB color
+                       │
+                       ▼
+              ┌─────────────────┐
+              │ TeamColor       │
+              │ Assigner        │
+              │                 │
+              │ K-Means         │
+              │                 │
+              │ fit()           │
+              │ predict()       │
+              └────────┬────────┘
+                       │
+                    Team ID
+                  Team 0 / Team 1
+                       │
+                       ▼
+              ┌─────────────────┐
+              │ Visualization   │
+              │                 │
+              │ draw_boxes()    │
+              │                 │
+              │ LAB → BGR       │
+              │ bounding boxes  │
+              │ team labels     │
+              └────────┬────────┘
+                       │
+                       ▼
+                  OUTPUT VIDEO
