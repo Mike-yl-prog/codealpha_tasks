@@ -237,7 +237,7 @@ If no license has been selected yet, consider adding an appropriate open-source 
 
 👨‍💻 Author
 
-Your Name
+Ademigoke Michael
 
 Built as a computer vision project for football video analysis.
 
